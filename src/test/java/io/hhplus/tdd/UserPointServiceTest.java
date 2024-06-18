@@ -26,7 +26,7 @@ public class UserPointServiceTest {
         UserPoint userPoint = new UserPoint(id, point, updateMillis);
 
         //when
-        UserPoint userPoints = userPointService.save(userPoint);
+        UserPoint userPoints = userPointService.chargeUserPoint(userPoint);
 
         //then
         assertThat(userPoints).isEqualTo(new UserPoint(id, point,updateMillis));
