@@ -24,7 +24,7 @@ public class PointHistoryTable {
         return pointHistory;
     }
 
-    public List<PointHistory> selectAllByUserId(long userId) {
+    public List<PointHistory> selectAllUserId(long userId) {
         return table.stream().filter(pointHistory -> pointHistory.userId() == userId).toList();
     }
 
