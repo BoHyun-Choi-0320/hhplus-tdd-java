@@ -22,7 +22,11 @@ public class UserPointService {
     private final Lock lock = new ReentrantLock();
 
     public UserPoint userPoint(long id){
-        return userPointRepository.selectById(id);
+        UserPoint userPoint = userPointRepository.selectById(id);
+        if(userPoint == null){
+            userPoint = UserPoint.empty(id);
+        }
+        return userPoint;
     }
 
     public UserPoint userPointCharge(long id, long amount){

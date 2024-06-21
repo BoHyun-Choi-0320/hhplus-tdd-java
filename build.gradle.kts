@@ -26,6 +26,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
     implementation("junit:junit:4.13.1")
     compileOnly(libs.lombok)
+    runtimeOnly("com.h2database:h2")
     annotationProcessor(libs.lombok)
     annotationProcessor(libs.spring.boot.configuration.processor)
     testImplementation(libs.spring.boot.starter.test)

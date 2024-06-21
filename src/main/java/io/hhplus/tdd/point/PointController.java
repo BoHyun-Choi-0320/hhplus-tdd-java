@@ -1,8 +1,10 @@
 package io.hhplus.tdd.point;
 
 import io.hhplus.tdd.service.UserPointService;
+import lombok.NoArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -13,8 +15,12 @@ public class PointController {
 
     private static final Logger log = LoggerFactory.getLogger(PointController.class);
 
-    private UserPointService userPointService;
+    private final UserPointService userPointService;
 
+    @Autowired
+    public PointController(UserPointService userPointService){
+        this.userPointService = userPointService;
+    }
 
     /**
      * TODO - 특정 유저의 포인트를 조회하는 기능을 작성해주세요.
