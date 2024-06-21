@@ -6,17 +6,19 @@ import io.hhplus.tdd.point.UserPoint;
 import io.hhplus.tdd.repository.PointHistoryRepository;
 import io.hhplus.tdd.repository.UserPointRepository;
 import io.hhplus.tdd.service.UserPointService;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -42,6 +44,9 @@ import static org.mockito.Mockito.when;
     포인트 내역 조회
     - 포인트 내역이 없을 경우, 포인트 내역 없음 예외처리
     - 포인트 내역이 존재할 경우, 포인트 내역 반환
+
+    동시성 제어
+    - 포인트 충전과 포인트 사용 시, 동시성 제어 -> 순서에 맞게 처리되는지 확인
  */
 @WebMvcTest(UserPointService.class)
 public class UserPointServiceTest {
@@ -135,20 +140,23 @@ public class UserPointServiceTest {
         long usePoint = 10L;
         UserPoint userPoint = new UserPoint(id, amount, System.currentTimeMillis());
 
-        when(userPointRepository.insertOrUpdate(anyLong(),anyLong()));
+        when(userPointRepository.selectById(anyLong())).thenReturn(userPoint);
 
-        // when
+        long finalPoint = amount - usePoint;
+        UserPoint updateUserPoint = new UserPoint(id, finalPoint, System.currentTimeMillis());
+        given(userPointRepository.insertOrUpdate(anyLong(),anyLong())).willReturn(updateUserPoint);
+
+        //when
         UserPoint useUserPoint = userPointService.userPointUse(id, usePoint);
-        System.out.println(useUserPoint);
 
         //then
         assertThat(useUserPoint).isNotNull();
         assertThat(useUserPoint.id()).isEqualTo(id);
-        assertThat(useUserPoint.point()).isEqualTo(amount - usePoint);
+        assertThat(useUserPoint.point()).isEqualTo(finalPoint);
     }
 
     @Test
-    void 사용내역_없음_예외처리(){
+    void 포인트_내역_없음_예외처리(){
         //given
         long id = 1L;
         long amount = 30L;
@@ -160,6 +168,75 @@ public class UserPointServiceTest {
         assertThrows(RuntimeException.class, () -> userPointService.selectAllUserId(id));
     }
 
+    @Test
+    void 포인트_내역_있음_내역반환(){
+        //given
+        long id = 1L;
+        long amount = 30L;
 
+        UserPoint userPoint = new UserPoint(id, amount, System.currentTimeMillis());
+        given(userPointRepository.insertOrUpdate(anyLong(),anyLong())).willReturn(userPoint);
 
+        PointHistory pointHistory = new PointHistory(1L, id, amount, TransactionType.CHARGE, System.currentTimeMillis());
+        List<PointHistory> mockPointHistories = Collections.singletonList(pointHistory);
+        given(pointHistoryRepository.selectAllUserId(anyLong())).willReturn(mockPointHistories);
+
+        //when
+        List<PointHistory> pointHistoryList = userPointService.selectAllUserId(id);
+        System.out.println(pointHistoryList);
+
+        //then
+        assertThat(pointHistoryList).isNotNull();
+        assertThat(pointHistoryList.size()).isEqualTo(1);
+        assertThat(pointHistoryList.get(0)).isEqualTo(pointHistory);
+    }
+
+    @Test
+    void 동시성제어_포인트_충전과_사용() throws InterruptedException {
+        //given
+        long id = 1L;
+        long initialAmount = 100L;
+        long chargeAmount = 10L;
+        long useAmount = 5L;
+
+        AtomicLong currentPoints = new AtomicLong(initialAmount);
+
+        // when
+        when(userPointRepository.selectById(anyLong())).thenAnswer(invocation -> new UserPoint(id, currentPoints.get(), System.currentTimeMillis()));
+        when(userPointRepository.insertOrUpdate(anyLong(), anyLong())).thenAnswer(invocation -> {
+            long updatedPoints = (Long) invocation.getArguments()[1];
+            currentPoints.set(updatedPoints);
+            return new UserPoint(id, updatedPoints, System.currentTimeMillis());
+        });
+
+        int numOfThreads = 100;
+        ExecutorService executorService = Executors.newFixedThreadPool(10);
+        CountDownLatch latch = new CountDownLatch(numOfThreads * 2);
+
+        for (int i = 0; i < numOfThreads; i++) {
+            executorService.submit(() -> {
+                try {
+                    userPointService.userPointCharge(id, chargeAmount);
+                } finally {
+                    latch.countDown();
+                }
+            });
+            executorService.submit(() -> {
+                try {
+                    userPointService.userPointUse(id, useAmount);
+                } finally {
+                    latch.countDown();
+                }
+            });
+        }
+
+        // 모든 스레드가 작업을 완료할 때까지 대기
+        latch.await();
+        executorService.shutdown();
+        executorService.awaitTermination(1, TimeUnit.MINUTES);
+
+        // 최종 포인트 검증
+        UserPoint finalUserPoint = userPointService.userPoint(id);
+        assertThat(finalUserPoint.point()).isEqualTo(initialAmount + (numOfThreads * chargeAmount) - (numOfThreads * useAmount));
+    }
 }
